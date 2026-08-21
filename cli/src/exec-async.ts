@@ -5,6 +5,10 @@ const DEFAULT_EXEC_TIMEOUT_MS = 10_000
 
 const _execAsync = promisify(exec)
 
+export function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`
+}
+
 export function execAsync(
   command: string,
   options?: Parameters<typeof _execAsync>[1],

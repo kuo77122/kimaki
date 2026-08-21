@@ -38,6 +38,7 @@ import {
   git,
   getDefaultBranch,
   listGitWorktrees,
+  shellQuote,
   type GitWorktree,
 } from '../worktrees.js'
 import path from 'node:path'
@@ -162,7 +163,7 @@ async function getWorktreeGitStatus({
     // errors and returns false, which would render "merged" instead of "unknown".
     const [statusResult, aheadResult] = await Promise.all([
       git(directory, 'status --porcelain', { timeout: GIT_CMD_TIMEOUT }),
-      git(directory, `rev-list --count "${defaultBranch}..HEAD"`, {
+      git(directory, `rev-list --count ${shellQuote(`${defaultBranch}..HEAD`)}`, {
         timeout: GIT_CMD_TIMEOUT,
       }),
     ])

@@ -8,7 +8,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { execAsync } from './exec-async.js'
+import { execAsync, shellQuote } from './exec-async.js'
 
 const SUBMODULE_INIT_TIMEOUT_MS = 20 * 60_000
 const INSTALL_TIMEOUT_MS = 60_000
@@ -323,7 +323,7 @@ export async function createWorktreeCore({
   await fs.promises.mkdir(path.dirname(targetDirectory), { recursive: true })
 
   const targetRef = baseBranch || 'HEAD'
-  const createCmd = `git worktree add ${JSON.stringify(targetDirectory)} -b ${JSON.stringify(branchName)} ${JSON.stringify(targetRef)}`
+  const createCmd = `git worktree add ${shellQuote(targetDirectory)} -b ${shellQuote(branchName)} ${shellQuote(targetRef)}`
   const createResult = await execAsync(createCmd, {
     cwd: projectDirectory,
     timeout: SUBMODULE_INIT_TIMEOUT_MS,
@@ -375,14 +375,14 @@ export async function removeWorktreeCore({
   branchName: string
 }): Promise<void | Error> {
   const removeResult = await execAsync(
-    `git worktree remove --force ${JSON.stringify(worktreeDirectory)}`,
+    `git worktree remove --force ${shellQuote(worktreeDirectory)}`,
     { cwd: projectDirectory, timeout: 30_000 },
   ).catch((e) => new Error(`git worktree remove failed: ${formatCommandError(e)}`, { cause: e }))
   if (removeResult instanceof Error) return removeResult
 
   if (branchName) {
     await execAsync(
-      `git branch -D ${JSON.stringify(branchName)}`,
+      `git branch -D ${shellQuote(branchName)}`,
       { cwd: projectDirectory, timeout: 10_000 },
     ).catch(() => {/* branch may not exist */})
   }

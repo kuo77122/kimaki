@@ -6,11 +6,12 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { getDataDir } from './config.js'
-import { execAsync } from './exec-async.js'
+import { execAsync, shellQuote } from './exec-async.js'
 import { createWorktreeCore, type WorktreeResult } from './git-worktree-core.js'
 import { createLogger, LogPrefix } from './logger.js'
 
 export { execAsync } from './exec-async.js'
+export { shellQuote } from './exec-async.js'
 
 const SUBMODULE_INIT_TIMEOUT_MS = 20 * 60_000
 const INSTALL_TIMEOUT_MS = 60_000
@@ -621,7 +622,7 @@ export async function git(
   opts?: { timeout?: number },
 ): Promise<GitCommandError | string> {
   const result = await execAsync(
-    `git -C "${dir}" ${args}`,
+    `git -C ${shellQuote(dir)} ${args}`,
     opts ? { timeout: opts.timeout } : undefined,
   ).catch((e) => new GitCommandError({ command: args, cause: e }))
   if (result instanceof Error) return result
@@ -650,7 +651,7 @@ export async function deleteWorktree({
 }): Promise<void | Error> {
   let removeResult = await git(
     projectDirectory,
-    `worktree remove ${JSON.stringify(worktreeDirectory)}`,
+    `worktree remove ${shellQuote(worktreeDirectory)}`,
     {
       timeout: SUBMODULE_INIT_TIMEOUT_MS,
     },
@@ -665,7 +666,7 @@ export async function deleteWorktree({
     if (stderr.includes('containing submodules')) {
       removeResult = await git(
         projectDirectory,
-        `worktree remove --force ${JSON.stringify(worktreeDirectory)}`,
+        `worktree remove --force ${shellQuote(worktreeDirectory)}`,
         { timeout: SUBMODULE_INIT_TIMEOUT_MS },
       )
     }
@@ -680,7 +681,7 @@ export async function deleteWorktree({
   if (worktreeName) {
     const deleteBranchResult = await git(
       projectDirectory,
-      `branch -d ${JSON.stringify(worktreeName)}`,
+      `branch -d ${shellQuote(worktreeName)}`,
     )
     if (deleteBranchResult instanceof Error) {
       return new Error(`Failed to delete branch ${worktreeName}`, {
@@ -730,14 +731,14 @@ async function isAncestor(
     ref2: string
   },
 ): Promise<boolean> {
-  const result = await git(dir, `merge-base --is-ancestor "${ref1}" "${ref2}"`)
+  const result = await git(dir, `merge-base --is-ancestor ${shellQuote(ref1)} ${shellQuote(ref2)}`)
   return !(result instanceof Error)
 }
 
 async function isRebasedOnto(dir: string, target: string): Promise<boolean> {
-  const mergeBase = await git(dir, `merge-base HEAD "${target}"`)
+  const mergeBase = await git(dir, `merge-base HEAD ${shellQuote(target)}`)
   if (mergeBase instanceof Error) return false
-  const targetSha = await git(dir, `rev-parse "${target}"`)
+  const targetSha = await git(dir, `rev-parse ${shellQuote(target)}`)
   if (targetSha instanceof Error) return false
   return mergeBase === targetSha
 }
@@ -816,7 +817,7 @@ export async function mergeWorktree({
   const branchResult = await git(worktreeDir, 'symbolic-ref --short HEAD')
   if (branchResult instanceof Error) {
     tempBranch = `kimaki-merge-${Date.now()}`
-    const createResult = await git(worktreeDir, `checkout -b "${tempBranch}"`)
+    const createResult = await git(worktreeDir, `checkout -b ${shellQuote(tempBranch)}`)
     if (createResult instanceof Error) return createResult
     branchName = tempBranch
   } else {
@@ -841,7 +842,7 @@ export async function mergeWorktree({
 
     const deleteTempBranchResult = await git(
       worktreeDir,
-      `branch -D "${tempBranch}"`,
+      `branch -D ${shellQuote(tempBranch)}`,
     )
     if (deleteTempBranchResult instanceof Error) {
       logger.warn(
@@ -875,14 +876,14 @@ export async function mergeWorktree({
 
   const mergeBaseResult = await git(
     worktreeDir,
-    `merge-base HEAD "${defaultBranch}"`,
+    `merge-base HEAD ${shellQuote(defaultBranch)}`,
   )
   const mergeBase =
     mergeBaseResult instanceof Error ? defaultBranch : mergeBaseResult
 
   const commitCountResult = await git(
     worktreeDir,
-    `rev-list --count "${mergeBase}..HEAD"`,
+    `rev-list --count ${shellQuote(`${mergeBase}..HEAD`)}`,
   )
   if (commitCountResult instanceof Error) {
     await cleanupTempBranch()
@@ -902,7 +903,7 @@ export async function mergeWorktree({
         ? `Rebasing ${commitCount} commits onto ${defaultBranch}...`
         : `Rebasing onto ${defaultBranch}...`,
     )
-    const rebaseResult = await git(worktreeDir, `rebase "${defaultBranch}"`, {
+    const rebaseResult = await git(worktreeDir, `rebase ${shellQuote(defaultBranch)}`, {
       timeout: 60_000,
     })
     if (rebaseResult instanceof Error) {
@@ -943,7 +944,7 @@ export async function mergeWorktree({
   log(`Pushing to ${defaultBranch}...`)
   const pushResult = await git(
     worktreeDir,
-    `push --receive-pack="git -c receive.denyCurrentBranch=updateInstead receive-pack" "${gitCommonDir}" "HEAD:${defaultBranch}"`,
+    `push --receive-pack="git -c receive.denyCurrentBranch=updateInstead receive-pack" ${shellQuote(gitCommonDir)} ${shellQuote(`HEAD:${defaultBranch}`)}`,
     { timeout: 30_000 },
   )
   if (pushResult instanceof Error) {
@@ -960,14 +961,14 @@ export async function mergeWorktree({
 
   // ── Step 5: Clean up -- detach HEAD and delete branch ──
   log('Cleaning up worktree...')
-  const detachResult = await git(worktreeDir, `checkout --detach "${defaultBranch}"`)
+  const detachResult = await git(worktreeDir, `checkout --detach ${shellQuote(defaultBranch)}`)
   if (detachResult instanceof Error) {
     logger.warn(
       `[MERGE CLEANUP] Failed to detach worktree HEAD after push: ${detachResult.message}`,
     )
   }
 
-  const deleteBranchResult = await git(worktreeDir, `branch -D "${branchName}"`)
+  const deleteBranchResult = await git(worktreeDir, `branch -D ${shellQuote(branchName)}`)
   if (deleteBranchResult instanceof Error) {
     logger.warn(
       `[MERGE CLEANUP] Failed to delete branch ${branchName}: ${deleteBranchResult.message}`,
@@ -977,7 +978,7 @@ export async function mergeWorktree({
   if (branchName !== worktreeName && worktreeName) {
     const deleteWorktreeBranchResult = await git(
       worktreeDir,
-      `branch -D "${worktreeName}"`,
+      `branch -D ${shellQuote(worktreeName)}`,
     )
     if (deleteWorktreeBranchResult instanceof Error) {
       logger.warn(
@@ -1028,17 +1029,23 @@ export async function resolveBestBaseRef({
 
   for (const remote of ['upstream', 'origin']) {
     // Best-effort fetch with short timeout
-    const fetchResult = await git(directory, `fetch ${remote} ${branch}`, {
+    const fetchResult = await git(directory, `fetch ${shellQuote(remote)} ${shellQuote(branch)}`, {
       timeout: 15_000,
     })
     if (fetchResult instanceof Error) continue
 
     const remoteRef = `${remote}/${branch}`
-    const refExists = await git(directory, `rev-parse --verify refs/remotes/${remoteRef}`)
+    const refExists = await git(
+      directory,
+      `rev-parse --verify ${shellQuote(`refs/remotes/${remoteRef}`)}`,
+    )
     if (refExists instanceof Error) continue
 
     // Check if local branch exists
-    const localExists = await git(directory, `rev-parse --verify refs/heads/${branch}`)
+    const localExists = await git(
+      directory,
+      `rev-parse --verify ${shellQuote(`refs/heads/${branch}`)}`,
+    )
     if (localExists instanceof Error) {
       // No local branch but remote exists — use remote
       return remoteRef
@@ -1046,8 +1053,14 @@ export async function resolveBestBaseRef({
 
     // Count commits: remote ahead of local, and local ahead of remote
     const [remoteAhead, localAhead] = await Promise.all([
-      git(directory, `rev-list --count refs/heads/${branch}..refs/remotes/${remoteRef}`),
-      git(directory, `rev-list --count refs/remotes/${remoteRef}..refs/heads/${branch}`),
+      git(
+        directory,
+        `rev-list --count ${shellQuote(`refs/heads/${branch}..refs/remotes/${remoteRef}`)}`,
+      ),
+      git(
+        directory,
+        `rev-list --count ${shellQuote(`refs/remotes/${remoteRef}..refs/heads/${branch}`)}`,
+      ),
     ])
     if (remoteAhead instanceof Error || localAhead instanceof Error) continue
 
@@ -1127,7 +1140,7 @@ export async function validateBranchRef({
   directory: string
   ref: string
 }): Promise<string | Error> {
-  const result = await git(directory, `check-ref-format --branch ${JSON.stringify(ref)}`)
+  const result = await git(directory, `check-ref-format --branch ${shellQuote(ref)}`)
   if (result instanceof Error) return new Error(`Invalid branch name: ${ref}`)
   return result
 }

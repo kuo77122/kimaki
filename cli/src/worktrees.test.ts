@@ -21,6 +21,7 @@ import {
 } from './git-worktree-core.js'
 import { TargetDirtyWorktreeError } from './errors.js'
 import {
+  deriveWorktreeNameFromThread,
   formatAutoWorktreeName,
   formatWorktreeName,
   shortenWorktreeSlug,
@@ -416,16 +417,27 @@ describe('worktrees', () => {
         directory: projectDirectory,
         ref: 'Feature/custom-name',
       })
+      const shellSafe = await validateBranchRef({
+        directory: projectDirectory,
+        ref: 'Feature/with`true`',
+      })
       const invalid = await validateBranchRef({
         directory: projectDirectory,
         ref: 'invalid..name',
       })
 
       expect(valid).toBe('Feature/custom-name')
+      expect(shellSafe).toBe('Feature/with`true`')
       expect(invalid).toBeInstanceOf(Error)
     } finally {
       fs.rmSync(sandbox, { recursive: true, force: true })
     }
+  })
+
+  test('legacy worktree thread names derive new branches without the prefix', () => {
+    expect(
+      deriveWorktreeNameFromThread('⬦ worktree: opencode/kimaki-legacy-name'),
+    ).toBe('legacy-name')
   })
 
   test('core worktree creation refuses an existing branch without resetting it', async () => {

@@ -163,14 +163,14 @@ export function formatAutoWorktreeName(name: string): string {
  * Handles existing "⬦ worktree: opencode/kimaki-name" format or uses thread name directly.
  * Uses formatAutoWorktreeName so long thread titles get vowel-compressed.
  */
-function deriveWorktreeNameFromThread(threadName: string): string {
+export function deriveWorktreeNameFromThread(threadName: string): string {
   // Handle existing "⬦ worktree: opencode/kimaki-name" format
   const worktreeMatch = threadName.match(/worktree:\s*(.+)$/i)
   const extractedName = worktreeMatch?.[1]?.trim()
   if (extractedName) {
-    // If already has opencode/kimaki- prefix, return as is
+    // Strip the legacy prefix when deriving a new branch.
     if (extractedName.startsWith('opencode/kimaki-')) {
-      return extractedName
+      return formatAutoWorktreeName(extractedName.slice('opencode/kimaki-'.length))
     }
     return formatAutoWorktreeName(extractedName)
   }
