@@ -38,6 +38,7 @@ import {
   git,
   getDefaultBranch,
   listGitWorktrees,
+  shellQuote,
   type GitWorktree,
 } from '../worktrees.js'
 import path from 'node:path'
@@ -123,15 +124,21 @@ type WorktreesReplyTarget = {
 const GIT_CMD_TIMEOUT = 5_000
 const GLOBAL_TIMEOUT = 10_000
 
-// Detect worktree source from branch name and directory path.
-// opencode/kimaki-* branches → kimaki, opencode worktree paths → opencode, else manual.
-function detectWorktreeSource({
+// Detect worktree source from DB ownership, branch name, and directory path.
+// DB-matched workspaces cover arbitrary Kimaki branch names; the prefix remains
+// a fallback for legacy entries without metadata.
+export function detectWorktreeSource({
   branch,
   directory,
+  matchedKimakiWorkspace = false,
 }: {
   branch: string | null
   directory: string
+  matchedKimakiWorkspace?: boolean
 }): 'kimaki' | 'opencode' | 'manual' {
+  if (matchedKimakiWorkspace) {
+    return 'kimaki'
+  }
   if (branch?.startsWith('opencode/kimaki-')) {
     return 'kimaki'
   }
@@ -156,7 +163,7 @@ async function getWorktreeGitStatus({
     // errors and returns false, which would render "merged" instead of "unknown".
     const [statusResult, aheadResult] = await Promise.all([
       git(directory, 'status --porcelain', { timeout: GIT_CMD_TIMEOUT }),
-      git(directory, `rev-list --count "${defaultBranch}..HEAD"`, {
+      git(directory, `rev-list --count ${shellQuote(`${defaultBranch}..HEAD`)}`, {
         timeout: GIT_CMD_TIMEOUT,
       }),
     ])
@@ -345,6 +352,7 @@ async function buildWorktreeRows({
     const source = detectWorktreeSource({
       branch: gw.branch,
       directory: gw.directory,
+      matchedKimakiWorkspace: Boolean(dbMatch),
     })
     const name = gw.branch ?? path.basename(gw.directory)
     const dbStatus: 'ready' | 'pending' | 'error' = (() => {

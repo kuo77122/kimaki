@@ -13,15 +13,21 @@ import {
   parseGitmodulesFileContent,
   parseGitWorktreeListPorcelain,
   resolveSessionWorkingDirectory,
+  validateBranchRef,
 } from './worktrees.js'
-import { parseGitmodulesFileContent as parseCoreGitmodulesFileContent } from './git-worktree-core.js'
+import {
+  createWorktreeCore,
+  parseGitmodulesFileContent as parseCoreGitmodulesFileContent,
+} from './git-worktree-core.js'
 import { TargetDirtyWorktreeError } from './errors.js'
 import {
+  deriveWorktreeNameFromThread,
   formatAutoWorktreeName,
   formatWorktreeName,
   shortenWorktreeSlug,
 } from './commands/new-worktree.js'
 import { setDataDir } from './config.js'
+import { detectWorktreeSource } from './commands/worktrees.js'
 
 const GIT_TIMEOUT_MS = 60_000
 
@@ -388,16 +394,82 @@ describe('worktrees', () => {
 
   test('formatWorktreeName keeps user-provided slugs verbatim', () => {
     expect(
-      formatWorktreeName('Configurable sidebar width by component'),
-    ).toMatchInlineSnapshot(`"opencode/kimaki-configurable-sidebar-width-by-component"`)
-    expect(formatWorktreeName('my-feature')).toMatchInlineSnapshot(`"opencode/kimaki-my-feature"`)
+      formatWorktreeName(' Feature/custom-name '),
+    ).toMatchInlineSnapshot(`"Feature/custom-name"`)
+    expect(formatWorktreeName('my-feature')).toMatchInlineSnapshot(`"my-feature"`)
   })
 
   test('formatAutoWorktreeName compresses long auto-derived slugs', () => {
     expect(
       formatAutoWorktreeName('Configurable sidebar width by component'),
-    ).toMatchInlineSnapshot(`"opencode/kimaki-cnfgrbl-sdbr-wdth-by-cmpnnt"`)
-    expect(formatAutoWorktreeName('my-feature')).toMatchInlineSnapshot(`"opencode/kimaki-my-feature"`)
+    ).toMatchInlineSnapshot(`"cnfgrbl-sdbr-wdth-by-cmpnnt"`)
+    expect(formatAutoWorktreeName('my-feature')).toMatchInlineSnapshot(`"my-feature"`)
+    expect(formatAutoWorktreeName('⬦ Reply')).toMatchInlineSnapshot(`"reply"`)
+  })
+
+  test('validateBranchRef accepts custom refs and rejects invalid refs', async () => {
+    const sandbox = createTestRoot()
+    const projectDirectory = path.join(sandbox, 'project')
+    try {
+      fs.mkdirSync(projectDirectory, { recursive: true })
+      await git({ cwd: projectDirectory, args: ['init', '-b', 'main'] })
+      const valid = await validateBranchRef({
+        directory: projectDirectory,
+        ref: 'Feature/custom-name',
+      })
+      const shellSafe = await validateBranchRef({
+        directory: projectDirectory,
+        ref: 'Feature/with`true`',
+      })
+      const invalid = await validateBranchRef({
+        directory: projectDirectory,
+        ref: 'invalid..name',
+      })
+
+      expect(valid).toBe('Feature/custom-name')
+      expect(shellSafe).toBe('Feature/with`true`')
+      expect(invalid).toBeInstanceOf(Error)
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true })
+    }
+  })
+
+  test('legacy worktree thread names derive new branches without the prefix', () => {
+    expect(
+      deriveWorktreeNameFromThread('⬦ worktree: opencode/kimaki-legacy-name'),
+    ).toBe('legacy-name')
+  })
+
+  test('core worktree creation refuses an existing branch without resetting it', async () => {
+    const sandbox = createTestRoot()
+    const projectDirectory = path.join(sandbox, 'project')
+    const targetDirectory = path.join(sandbox, 'worktree')
+    const branchName = 'Feature/custom-name'
+    try {
+      fs.mkdirSync(projectDirectory, { recursive: true })
+      await git({ cwd: projectDirectory, args: ['init', '-b', 'main'] })
+      await git({ cwd: projectDirectory, args: ['config', 'user.email', 'kimaki-tests@example.com'] })
+      await git({ cwd: projectDirectory, args: ['config', 'user.name', 'Kimaki Tests'] })
+      fs.writeFileSync(path.join(projectDirectory, 'README.md'), 'initial\n')
+      await git({ cwd: projectDirectory, args: ['add', 'README.md'] })
+      await git({ cwd: projectDirectory, args: ['commit', '-m', 'initial'] })
+      await git({ cwd: projectDirectory, args: ['branch', branchName] })
+      fs.writeFileSync(path.join(projectDirectory, 'README.md'), 'main update\n')
+      await git({ cwd: projectDirectory, args: ['commit', '-am', 'main update'] })
+
+      const existingSha = await git({ cwd: projectDirectory, args: ['rev-parse', branchName] })
+      const result = await createWorktreeCore({
+        projectDirectory,
+        targetDirectory,
+        branchName,
+      })
+
+      expect(result).toBeInstanceOf(Error)
+      expect(await git({ cwd: projectDirectory, args: ['rev-parse', branchName] })).toBe(existingSha)
+      expect(fs.existsSync(targetDirectory)).toBe(false)
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true })
+    }
   })
 
   test('getManagedWorktreeDirectory writes under kimaki data dir and strips prefix', () => {
@@ -427,6 +499,23 @@ describe('worktrees', () => {
     } finally {
       fs.rmSync(sandbox, { recursive: true, force: true })
     }
+  })
+
+  test('classifies DB-matched custom branches as kimaki and keeps legacy fallback', () => {
+    expect(
+      detectWorktreeSource({
+        branch: 'Feature/custom-name',
+        directory: '/tmp/manual-worktree',
+        matchedKimakiWorkspace: true,
+      }),
+    ).toBe('kimaki')
+    expect(
+      detectWorktreeSource({
+        branch: 'opencode/kimaki-legacy-name',
+        directory: '/tmp/manual-worktree',
+        matchedKimakiWorkspace: false,
+      }),
+    ).toBe('kimaki')
   })
 
   test('resolveSessionWorkingDirectory accepts the project root', async () => {

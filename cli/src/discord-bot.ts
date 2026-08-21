@@ -31,7 +31,12 @@ import {
   stopOpencodeServer,
 } from './opencode.js'
 import { formatAutoWorktreeName, createWorktreeInBackground, worktreeCreatingMessage } from './commands/new-worktree.js'
-import { resolveSessionWorkingDirectory, git, isGitRepositoryRoot } from './worktrees.js'
+import {
+  resolveSessionWorkingDirectory,
+  git,
+  isGitRepositoryRoot,
+  validateBranchRef,
+} from './worktrees.js'
 import { WORKTREE_PREFIX } from './commands/merge-worktree.js'
 import {
   escapeBackticksInCodeBlocks,
@@ -1306,13 +1311,30 @@ export async function startDiscordBot({
           ? formatAutoWorktreeName(thread.name.slice(0, 50))
           : undefined)
 
+      const validatedWorktreeName = effectiveWorktreeName
+        ? await validateBranchRef({
+            directory: projectDirectory,
+            ref: effectiveWorktreeName,
+          })
+        : undefined
+      if (validatedWorktreeName instanceof Error) {
+        discordLogger.error(
+          `[BOT_SESSION] Invalid worktree name: ${effectiveWorktreeName}`,
+        )
+        await thread.send({
+          content: `✗ Invalid worktree name: \`${effectiveWorktreeName}\``,
+          flags: NOTIFY_MESSAGE_FLAGS,
+        })
+        return
+      }
+
       let worktreePromise: Promise<string | Error> | undefined
-      if (effectiveWorktreeName && (await isGitRepositoryRoot(projectDirectory))) {
-        discordLogger.log(`[BOT_SESSION] Creating worktree: ${effectiveWorktreeName}`)
+      if (validatedWorktreeName && (await isGitRepositoryRoot(projectDirectory))) {
+        discordLogger.log(`[BOT_SESSION] Creating worktree: ${validatedWorktreeName}`)
 
         const worktreeStatusMessage = await thread
           .send({
-            content: worktreeCreatingMessage(effectiveWorktreeName),
+            content: worktreeCreatingMessage(validatedWorktreeName),
             flags: SILENT_MESSAGE_FLAGS,
           })
           .catch(() => undefined)
@@ -1320,7 +1342,7 @@ export async function startDiscordBot({
         worktreePromise = createWorktreeInBackground({
           thread,
           starterMessage: worktreeStatusMessage,
-          worktreeName: effectiveWorktreeName,
+          worktreeName: validatedWorktreeName,
           projectDirectory,
           rest: discordClient.rest,
         })

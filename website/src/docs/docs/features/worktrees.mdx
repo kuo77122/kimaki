@@ -13,8 +13,8 @@ icon: lucide:git-branch
        │ /new-worktree
        ▼
   ┌──────────────────┐     work in worktree
-  │worktree: opencode│────▶ commits accumulate
-  │kimaki-redesign   │
+  │worktree: redesign│────▶ commits accumulate
+  │                  │
   └────┬─────────────┘
        │ /merge-worktree
        ▼
@@ -25,13 +25,14 @@ icon: lucide:git-branch
 
 Run **`/new-worktree`**:
 
-- **From a project channel**, pass a `name`. Kimaki creates a thread immediately (so you can start typing) and builds the worktree in the background. The branch is named `opencode/kimaki-<name>` and the thread is prefixed with `⬦ worktree:`.
+- **From a project channel**, pass a `name`. Kimaki creates a thread immediately (so you can start typing) and builds the worktree in the background. The name is trimmed and must be accepted by Git as a branch ref, including names with case and slashes such as `Feature/custom-name`. The thread is prefixed with `⬦ worktree:`.
 - **From an existing thread**, the `name` is optional; Kimaki derives it from the thread name.
 - **`base-branch`** is optional and defaults to `HEAD` (your current local HEAD), so you can branch from unpushed commits.
+- **`kimaki send --worktree <name>`** uses the same validation and preserves the explicit branch name. Automatic names are normalized and shortened for readability, but do not add a fixed prefix.
 
 <Aside>
 <Tip>
-Long auto-derived names get shortened by stripping vowels (e.g. `configurable-sidebar-width` becomes `cnfgrbl-sdbr-wdth`). Names you pass explicitly are kept as-is.
+Long auto-derived names get shortened by stripping vowels (e.g. `configurable-sidebar-width` becomes `cnfgrbl-sdbr-wdth`). Names you pass explicitly are kept as-is after trimming and Git validation. An existing branch or a Git-invalid name fails without resetting the existing branch.
 </Tip>
 </Aside>
 
