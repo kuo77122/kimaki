@@ -52,7 +52,7 @@ const NON_GIT_CHANNEL_ID = '200000000000000903'
 const AUTO_WORKTREE_CHANNEL_ID = '200000000000000904'
 // Unique worktree name per run to avoid collisions with leftover worktrees
 const WORKTREE_SUFFIX = Date.now().toString(36).slice(-6)
-const WORKTREE_NAME = `wt-e2e-${WORKTREE_SUFFIX}`
+const WORKTREE_NAME = `Feature/custom-${WORKTREE_SUFFIX}`
 const CHANNEL_WORKTREE_NAME = `wt-chan-${WORKTREE_SUFFIX}`
 const AUTO_WORKTREE_SUFFIX = `wt-auto-${WORKTREE_SUFFIX}`
 
@@ -61,13 +61,12 @@ function normalizeWorktreeLifecycleText(text: string): string {
     .replaceAll(CHANNEL_WORKTREE_NAME, 'CHANNEL_WORKTREE_NAME')
     .replaceAll(AUTO_WORKTREE_SUFFIX, 'AUTO_WORKTREE_NAME')
     .replaceAll(WORKTREE_NAME, 'WORKTREE_NAME')
-    .replace(
-      /opencode\/kimaki-rply-wth-exctly-snd-at-wt-[a-z0-9]+/g,
-      'AUTO_WORKTREE_BRANCH',
-    )
+    .replaceAll(WORKTREE_NAME.replaceAll('/', '-'), 'WORKTREE_NAME')
+    .replace(/rply-wth-exctly-snd-at-wt-[a-z0-9]+/g, 'AUTO_WORKTREE_BRANCH')
     .replaceAll(WORKTREE_SUFFIX, 'SUFFIX')
     .replace(/ses_[a-zA-Z0-9]+/g, 'ses_TEST')
     .replace(/<#\d+>/g, '<#THREAD_ID>')
+    .replace(/\*non-git-project ⋅ [^ ⋅]+ ⋅ Ns ⋅/, '*non-git-project ⋅ main ⋅ Ns ⋅')
     .replace(/`[^`\n]*\/worktrees\/[^`\n]*`/g, '`/tmp/worktrees/WORKTREE_NAME`')
 }
 
@@ -307,8 +306,8 @@ describe('worktree lifecycle', () => {
     // Clean up the git worktrees created during the tests
     if (directories) {
       const branchesToClean = [
-        `opencode/kimaki-${WORKTREE_NAME}`,
-        `opencode/kimaki-${CHANNEL_WORKTREE_NAME}`,
+        WORKTREE_NAME,
+        CHANNEL_WORKTREE_NAME,
       ]
       await execAsync(
         `git worktree list --porcelain`,
@@ -332,7 +331,7 @@ describe('worktree lifecycle', () => {
           }
         }
       }).catch(() => { return })
-      // Also clean up auto-worktree branches (pattern: opencode/kimaki-<suffix>)
+      // Also clean up auto-worktree branches containing the run suffix.
       await execAsync(
         'git worktree prune',
         { cwd: directories.projectDirectory },
@@ -345,7 +344,7 @@ describe('worktree lifecycle', () => {
       }
       // Clean auto-worktree branches (auto-derived names contain the suffix)
       await execAsync(
-        `git branch --list 'opencode/kimaki-*${WORKTREE_SUFFIX}*'`,
+        `git branch --list '*${WORKTREE_SUFFIX}*'`,
         { cwd: directories.projectDirectory },
       ).then(async ({ stdout }) => {
         for (const branch of stdout.trim().split('\n').filter(Boolean)) {
@@ -419,7 +418,7 @@ describe('worktree lifecycle', () => {
             return false
           }
           return t.id !== thread.id
-            && t.name.startsWith('⬦ worktree: opencode/kimaki-')
+            && t.name.startsWith('⬦ worktree: ')
             && t.name.includes(WORKTREE_NAME)
         },
       })
@@ -453,7 +452,7 @@ describe('worktree lifecycle', () => {
       await expect(getThreadWorktreeOrWorkspace(thread.id)).resolves.toBeUndefined()
       const worktreeInfo = await getThreadWorktreeOrWorkspace(worktreeThread.id)
       expect(worktreeInfo?.status).toBe('ready')
-      expect(worktreeInfo?.workspace_directory).toContain(WORKTREE_NAME)
+      expect(worktreeInfo?.workspace_directory).toContain(WORKTREE_NAME.replaceAll('/', '-'))
       const worktreeDirectory = worktreeInfo?.workspace_directory
       if (!worktreeDirectory) throw new Error('Worktree directory was not persisted')
       const getWorktreeClient = await initializeOpencodeForDirectory(
@@ -471,7 +470,7 @@ describe('worktree lifecycle', () => {
       expect(runtimeAfter!.sdkDirectory).toBe(directories.projectDirectory)
       const worktreeRuntime = getRuntime(worktreeThread.id)
       expect(worktreeRuntime).toBeDefined()
-      expect(worktreeRuntime!.sdkDirectory).toContain(WORKTREE_NAME)
+      expect(worktreeRuntime!.sdkDirectory).toContain(WORKTREE_NAME.replaceAll('/', '-'))
       expect(worktreeRuntime!.sdkDirectory).toContain(
         `${path.sep}worktrees${path.sep}`,
       )
@@ -543,15 +542,15 @@ describe('worktree lifecycle', () => {
       const worktreeText = await worktreeTh.text()
       expect(normalizeWorktreeLifecycleText(worktreeText)).toMatchInlineSnapshot(`
         "--- from: assistant (TestBot)
-        🌳 **Worktree: opencode/kimaki-WORKTREE_NAME**
+        🌳 **Worktree: WORKTREE_NAME**
         📁 \`/tmp/worktrees/WORKTREE_NAME\`
-        🌿 Branch: \`opencode/kimaki-WORKTREE_NAME\`
+        🌿 Branch: \`WORKTREE_NAME\`
         Reusing context from <#THREAD_ID> in worktree session \`ses_TEST\`.
         --- from: user (worktree-tester)
         Reply with exactly: after-worktree-thread
         --- from: assistant (TestBot)
         ⬥ ok
-        *WORKTREE_NAME ⋅ opencode/kimaki-WORKTREE_NAME ⋅ Ns ⋅ N% ⋅ deterministic-v2*"
+        *WORKTREE_NAME ⋅ WORKTREE_NAME ⋅ Ns ⋅ N% ⋅ deterministic-v2*"
       `)
       expect(worktreeText).toContain('Worktree:')
       expect(worktreeText).toContain('Branch:')
@@ -584,7 +583,7 @@ describe('worktree lifecycle', () => {
         predicate: (t) => {
           return Boolean(
             t.name
-            && t.name.startsWith('⬦ worktree: opencode/kimaki-')
+            && t.name.startsWith('⬦ worktree: ')
             && t.name.includes(CHANNEL_WORKTREE_NAME),
           )
         },
@@ -640,9 +639,9 @@ describe('worktree lifecycle', () => {
       const worktreeText = await wt.text()
       expect(normalizeWorktreeLifecycleText(worktreeText)).toMatchInlineSnapshot(`
         "--- from: assistant (TestBot)
-        🌳 **Worktree: opencode/kimaki-CHANNEL_WORKTREE_NAME**
+        🌳 **Worktree: CHANNEL_WORKTREE_NAME**
         📁 \`/tmp/worktrees/WORKTREE_NAME\`
-        🌿 Branch: \`opencode/kimaki-CHANNEL_WORKTREE_NAME\`
+        🌿 Branch: \`CHANNEL_WORKTREE_NAME\`
         --- from: user (worktree-tester)
         Reply with exactly: channel-worktree-msg
         --- from: assistant (TestBot)
@@ -773,7 +772,7 @@ describe('worktree lifecycle', () => {
       })
 
       const text = await th.text()
-      expect(text).toMatchInlineSnapshot(`
+      expect(normalizeWorktreeLifecycleText(text)).toMatchInlineSnapshot(`
         "--- from: user (worktree-tester)
         Reply with exactly: non-git-first
         --- from: assistant (TestBot)

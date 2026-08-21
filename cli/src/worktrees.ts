@@ -520,10 +520,8 @@ async function resolveDefaultWorktreeTarget(
  *   worktree when paths get absurdly long).
  * - The 8-char project hash keeps worktrees from different projects that
  *   happen to share a slug from colliding.
- * - Strips the `opencode/kimaki-` (or `opencode-kimaki-`) prefix from the
- *   folder name since it's redundant noise on disk. The git branch name
- *   itself still uses `opencode/kimaki-<slug>` so merge/cleanup logic is
- *   unchanged.
+ * - Strips the legacy `opencode/kimaki-` prefix from folder names since it's
+ *   redundant noise on disk. Slashes in custom branch names are flattened.
  */
 export function getManagedWorktreeDirectory({
   directory,

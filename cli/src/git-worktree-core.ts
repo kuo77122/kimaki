@@ -323,7 +323,7 @@ export async function createWorktreeCore({
   await fs.promises.mkdir(path.dirname(targetDirectory), { recursive: true })
 
   const targetRef = baseBranch || 'HEAD'
-  const createCmd = `git worktree add ${JSON.stringify(targetDirectory)} -B ${JSON.stringify(branchName)} ${JSON.stringify(targetRef)}`
+  const createCmd = `git worktree add ${JSON.stringify(targetDirectory)} -b ${JSON.stringify(branchName)} ${JSON.stringify(targetRef)}`
   const createResult = await execAsync(createCmd, {
     cwd: projectDirectory,
     timeout: SUBMODULE_INIT_TIMEOUT_MS,

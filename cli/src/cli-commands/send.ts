@@ -31,7 +31,12 @@ import { buildOpencodeEventLogLine } from '../session-handler/opencode-session-e
 import { createDiscordRest } from '../discord-urls.js'
 import { archiveThread, ensureThreadMember, uploadFilesToDiscord, stripMentions } from '../discord-utils.js'
 import { setDataDir, setProjectsDir, getDataDir, getProjectsDir } from '../config.js'
-import { execAsync, resolveSessionWorkingDirectory, isGitRepositoryRoot } from '../worktrees.js'
+import {
+  execAsync,
+  resolveSessionWorkingDirectory,
+  isGitRepositoryRoot,
+  validateBranchRef,
+} from '../worktrees.js'
 import { upgrade, getCurrentVersion } from '../upgrade.js'
 import { getPromptPreview, parseSendAtValue, parseScheduledTaskPayload, serializeScheduledTaskPayload, type ScheduledTaskPayload } from '../task-schedule.js'
 import {
@@ -680,11 +685,29 @@ cli
             ? (await getChannelWorktreesEnabled(channelId)) &&
               (await isGitRepositoryRoot(projectDirectory))
             : false
-        const worktreeName = options.worktree
-          ? typeof options.worktree === 'string'
+        const explicitWorktreeName =
+          typeof options.worktree === 'string'
             ? formatWorktreeName(options.worktree)
+            : ''
+        if (options.worktree && typeof options.worktree === 'string' && !explicitWorktreeName) {
+          cliLogger.error('Invalid worktree name. Please provide a valid Git branch name.')
+          process.exit(EXIT_NO_RESTART)
+        }
+        const worktreeNameResult = options.worktree
+          ? typeof options.worktree === 'string'
+            ? projectDirectory
+              ? await validateBranchRef({
+                  directory: projectDirectory,
+                  ref: explicitWorktreeName,
+                })
+              : explicitWorktreeName
             : formatAutoWorktreeName(baseThreadName)
           : undefined
+        if (worktreeNameResult instanceof Error) {
+          cliLogger.error(`Invalid worktree name: ${explicitWorktreeName}`)
+          process.exit(EXIT_NO_RESTART)
+        }
+        const worktreeName = worktreeNameResult
         const threadName =
           worktreeName || channelWorktreesEnabled
             ? `${WORKTREE_PREFIX}${baseThreadName}`

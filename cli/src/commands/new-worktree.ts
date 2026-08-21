@@ -1,5 +1,5 @@
 // Worktree management command: /new-worktree
-// Uses OpenCode SDK v2 to create worktrees with kimaki- prefix
+// Uses OpenCode SDK v2 to create worktrees.
 // Creates thread immediately, then worktree in background so user can type
 
 import {
@@ -94,8 +94,7 @@ class WorktreeError extends Error {
 
 /**
  * Lowercase, collapse whitespace to dashes, drop non-[a-z0-9-] chars.
- * Does NOT add the `opencode/kimaki-` prefix — callers do that so they can
- * optionally compress the slug first for auto-derived names.
+ * Used only for automatic names; explicit names preserve their Git ref.
  */
 export function slugifyWorktreeName(name: string): string {
   return name
@@ -103,6 +102,7 @@ export function slugifyWorktreeName(name: string): string {
     .trim()
     .replace(/\s+/g, '-')
     .replace(/[^a-z0-9-]/g, '')
+    .replace(/^-+/, '')
 }
 
 /**
@@ -136,20 +136,13 @@ export function shortenWorktreeSlug(slug: string): string {
 }
 
 /**
- * Format worktree name: lowercase, spaces to dashes, remove special chars, add opencode/kimaki- prefix.
- * "My Feature" → "opencode/kimaki-my-feature"
- * Returns empty string if no valid name can be extracted.
+ * Format an explicit worktree name by trimming it without changing its Git ref.
+ * Git validation happens once the project directory is known.
  *
- * This is the "explicit" path used when the user provides a specific name.
- * The slug is NOT compressed — if you ask for `my-long-explicit-branch-name`
- * you get `opencode/kimaki-my-long-explicit-branch-name` verbatim.
+ * This is the explicit path used when the user provides a specific name.
  */
 export function formatWorktreeName(name: string): string {
-  const slug = slugifyWorktreeName(name)
-  if (!slug) {
-    return ''
-  }
-  return `opencode/kimaki-${slug}`
+  return name.trim()
 }
 
 /**
@@ -162,7 +155,7 @@ export function formatAutoWorktreeName(name: string): string {
   if (!slug) {
     return ''
   }
-  return `opencode/kimaki-${shortenWorktreeSlug(slug)}`
+  return shortenWorktreeSlug(slug)
 }
 
 /**
@@ -417,10 +410,10 @@ export async function handleNewWorktreeCommand({
     return
   }
 
-  const worktreeName = formatWorktreeName(rawName)
-  if (!worktreeName) {
+  const formattedWorktreeName = formatWorktreeName(rawName)
+  if (!formattedWorktreeName) {
     await command.editReply(
-      'Invalid worktree name. Please use letters, numbers, and spaces.',
+      'Invalid worktree name. Please provide a valid Git branch name.',
     )
     return
   }
@@ -430,6 +423,15 @@ export async function handleNewWorktreeCommand({
   )
   if (errore.isError(projectDirectory)) {
     await command.editReply(projectDirectory.message)
+    return
+  }
+
+  const worktreeName = await validateBranchRef({
+    directory: projectDirectory,
+    ref: formattedWorktreeName,
+  })
+  if (worktreeName instanceof Error) {
+    await command.editReply(`Invalid worktree name: \`${formattedWorktreeName}\``)
     return
   }
 
@@ -540,12 +542,23 @@ async function handleWorktreeInThread({
     return
   }
 
+  const validatedWorktreeName = rawName
+    ? await validateBranchRef({
+        directory: projectDirectory,
+        ref: worktreeName,
+      })
+    : worktreeName
+  if (validatedWorktreeName instanceof Error) {
+    await command.editReply(`Invalid worktree name: \`${worktreeName}\``)
+    return
+  }
+
   // Parallelize: base branch validation, existing worktree check, and parent channel
   // resolve are all independent. resolveTextChannel fetches the parent from Discord
   // cache/API which can overlap with the git operations.
   const [baseBranch, existingWorktreePath, textChannel] = await Promise.all([
     resolveRequestedWorktreeBaseRef({ projectDirectory, rawBaseBranch }),
-    findExistingWorktreePath({ projectDirectory, worktreeName }),
+    findExistingWorktreePath({ projectDirectory, worktreeName: validatedWorktreeName }),
     resolveTextChannel(thread),
   ])
   if (baseBranch instanceof Error) {
@@ -569,7 +582,7 @@ async function handleWorktreeInThread({
 
   const threadResult = await (async () => {
       const worktreeThread = await textChannel.threads.create({
-        name: `${WORKTREE_PREFIX}worktree: ${worktreeName}`.slice(0, 100),
+        name: `${WORKTREE_PREFIX}worktree: ${validatedWorktreeName}`.slice(0, 100),
         autoArchiveDuration: 1440,
         reason: `Worktree fork from thread ${thread.id}`,
       })
@@ -577,7 +590,7 @@ async function handleWorktreeInThread({
       const [, statusMessage] = await Promise.all([
         worktreeThread.members.add(command.user.id),
         worktreeThread.send({
-          content: worktreeCreatingMessage(worktreeName),
+          content: worktreeCreatingMessage(validatedWorktreeName),
           flags: SILENT_MESSAGE_FLAGS,
         }),
       ])
@@ -598,7 +611,7 @@ async function handleWorktreeInThread({
   void createWorktreeInBackground({
     thread: worktreeThread,
     starterMessage: statusMessage,
-    worktreeName,
+    worktreeName: validatedWorktreeName,
     projectDirectory,
     baseBranch,
     rest: command.client.rest,
