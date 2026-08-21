@@ -22,7 +22,7 @@ import { buildOpencodeEventLogLine } from '../session-handler/opencode-session-e
 import { createDiscordRest } from '../discord-urls.js'
 import { archiveThread, uploadFilesToDiscord, stripMentions } from '../discord-utils.js'
 import { setDataDir, setProjectsDir, getDataDir, getProjectsDir } from '../config.js'
-import { execAsync, validateWorktreeDirectory } from '../worktrees.js'
+import { execAsync, shellQuote, validateWorktreeDirectory } from '../worktrees.js'
 import { upgrade, getCurrentVersion } from '../upgrade.js'
 import { getPromptPreview, parseSendAtValue, parseScheduledTaskPayload, serializeScheduledTaskPayload, type ScheduledTaskPayload } from '../task-schedule.js'
 import {
@@ -41,6 +41,16 @@ import {
 
 const cliLogger = createLogger(LogPrefix.CLI)
 const cli = goke()
+
+export function buildMaintenanceGitCommand({
+  worktreeDirectory,
+  command,
+}: {
+  worktreeDirectory: string
+  command: string
+}): string {
+  return `git -C ${shellQuote(worktreeDirectory)} ${command}`
+}
 
 cli
   .command(
@@ -119,7 +129,10 @@ cli
           try {
             // `git worktree list --porcelain` first line is always the main worktree
             const { stdout } = await execAsync(
-              `git -C "${worktreeDir}" worktree list --porcelain`,
+              buildMaintenanceGitCommand({
+                worktreeDirectory: worktreeDir,
+                command: 'worktree list --porcelain',
+              }),
             )
             const firstLine = stdout.split('\n')[0] || ''
             // Format: "worktree /path/to/main"
@@ -127,7 +140,10 @@ cli
           } catch {
             // Fallback: derive from git common dir
             const { stdout: commonDir } = await execAsync(
-              `git -C "${worktreeDir}" rev-parse --git-common-dir`,
+              buildMaintenanceGitCommand({
+                worktreeDirectory: worktreeDir,
+                command: 'rev-parse --git-common-dir',
+              }),
             )
             const resolved = path.isAbsolute(commonDir.trim())
               ? commonDir.trim()
@@ -141,7 +157,10 @@ cli
         if (!worktreeName) {
           try {
             const { stdout } = await execAsync(
-              `git -C "${worktreeDir}" symbolic-ref --short HEAD`,
+              buildMaintenanceGitCommand({
+                worktreeDirectory: worktreeDir,
+                command: 'symbolic-ref --short HEAD',
+              }),
             )
             worktreeName = stdout.trim()
           } catch {
