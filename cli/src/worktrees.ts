@@ -1112,6 +1112,17 @@ export async function resolveRequestedWorktreeBaseRef({
   if (bestRef !== validated) {
     logger.log(`Base branch resolved: ${validated} → ${bestRef} (remote is ahead)`)
   }
+
+  const commit = await git(
+    projectDirectory,
+    `rev-parse --verify ${shellQuote(`${bestRef}^{commit}`)}`,
+  )
+  if (commit instanceof Error) {
+    return new Error(`Base ref does not resolve to a commit: ${bestRef}`, {
+      cause: commit,
+    })
+  }
+
   return bestRef
 }
 

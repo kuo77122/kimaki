@@ -57,6 +57,7 @@ const CHANNEL_WORKTREE_NAME = `wt-chan-${WORKTREE_SUFFIX}`
 const AUTO_WORKTREE_SUFFIX = `wt-auto-${WORKTREE_SUFFIX}`
 const BASE_REF_NAME = `base-ref-${WORKTREE_SUFFIX}`
 const BASE_REF_WORKTREE_NAME = `base-ref-worktree-${WORKTREE_SUFFIX}`
+const INVALID_BASE_REF_WORKTREE_NAME = `invalid-base-ref-worktree-${WORKTREE_SUFFIX}`
 
 function normalizeWorktreeLifecycleText(text: string): string {
   return text
@@ -961,5 +962,50 @@ describe('worktree lifecycle', () => {
       ).toBe(headSha)
     },
     35_000,
+  )
+
+  test(
+    'kimaki send rejects a nonexistent base ref before bot worktree creation',
+    async () => {
+      const embedMarker: ThreadStartMarker = {
+        start: true,
+        worktree: INVALID_BASE_REF_WORKTREE_NAME,
+        baseBranch: 'missing/base-ref',
+        username: 'worktree-tester',
+        userId: TEST_USER_ID,
+      }
+      const starterMessage = await discord
+        .channel(TEXT_CHANNEL_ID)
+        .bot()
+        .sendMessage({
+          content: 'Reject the missing base ref',
+          embeds: [
+            { color: 0x2b2d31, footer: { text: YAML.stringify(embedMarker) } },
+          ],
+        })
+      const threadData = (await botClient.rest.post(
+        Routes.threads(TEXT_CHANNEL_ID, starterMessage.id),
+        {
+          body: {
+            name: INVALID_BASE_REF_WORKTREE_NAME,
+            auto_archive_duration: 1440,
+          },
+        },
+      )) as { id: string }
+
+      await waitForBotMessageContaining({
+        discord,
+        threadId: threadData.id,
+        userId: TEST_USER_ID,
+        text: 'Invalid base branch:',
+        timeout: 10_000,
+      })
+
+      const worktreeInfo = await getThreadWorktreeOrWorkspace(threadData.id)
+      expect(worktreeInfo).toBeUndefined()
+      const text = await discord.thread(threadData.id).text()
+      expect(text).not.toContain('Branch:')
+    },
+    20_000,
   )
 })

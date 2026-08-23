@@ -474,6 +474,32 @@ describe('worktrees', () => {
     }
   })
 
+  test('rejects a syntactically valid but nonexistent base ref', async () => {
+    const sandbox = createTestRoot()
+    const projectDirectory = path.join(sandbox, 'project')
+    try {
+      fs.mkdirSync(projectDirectory, { recursive: true })
+      await git({ cwd: projectDirectory, args: ['init', '-b', 'main'] })
+      await git({ cwd: projectDirectory, args: ['config', 'user.email', 'kimaki-tests@example.com'] })
+      await git({ cwd: projectDirectory, args: ['config', 'user.name', 'Kimaki Tests'] })
+      fs.writeFileSync(path.join(projectDirectory, 'README.md'), 'initial\n')
+      await git({ cwd: projectDirectory, args: ['add', 'README.md'] })
+      await git({ cwd: projectDirectory, args: ['commit', '-m', 'initial'] })
+
+      const result = await resolveRequestedWorktreeBaseRef({
+        projectDirectory,
+        rawBaseBranch: 'missing/base-ref',
+      })
+
+      expect(result).toBeInstanceOf(Error)
+      if (result instanceof Error) {
+        expect(result.message).toContain('does not resolve to a commit')
+      }
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true })
+    }
+  })
+
   test('legacy worktree thread names derive new branches without the prefix', () => {
     expect(
       deriveWorktreeNameFromThread('⬦ worktree: opencode/kimaki-legacy-name'),
