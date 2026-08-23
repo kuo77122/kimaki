@@ -2,12 +2,13 @@
 import { describe, expect, test } from 'vitest'
 import { execAsync } from './exec-async.js'
 import sessionCommands from './cli-commands/session.js'
+import sendCommands from './cli-commands/send.js'
 
 async function parseWithGoke(argv: string[]) {
   const script = [
     "import { goke } from 'goke'",
     'const cli = goke(\'kimaki\')',
-    "cli.command('send', 'Send a message').option('-c, --channel <channelId>', 'Discord channel ID').option('--thread <threadId>', 'Thread ID').option('--session <sessionId>', 'Session ID').option('--send-at <schedule>', 'Schedule')",
+    "cli.command('send', 'Send a message').option('-c, --channel <channelId>', 'Discord channel ID').option('--thread <threadId>', 'Thread ID').option('--session <sessionId>', 'Session ID').option('--send-at <schedule>', 'Schedule').option('--base-branch <ref>', 'Base branch for a new worktree')",
     "cli.command('session archive <threadId>', 'Archive a thread')",
     "cli.command('session search <query>', 'Search sessions').option('--channel <channelId>', 'Discord channel ID').option('--project <path>', 'Project path')",
     "cli.command('session export-events-jsonl', 'Export in-memory events to JSONL').option('--session <sessionId>', 'Session ID').option('--out <file>', 'Output path')",
@@ -176,6 +177,28 @@ describe('goke CLI ID parsing', () => {
 
     expect(result.options.sendAt).toBe(cron)
     expect(typeof result.options.sendAt).toBe('string')
+  })
+
+  test('parses --base-branch as a ref string', async () => {
+    const result = await parseWithGoke([
+      'node',
+      'kimaki',
+      'send',
+      '--base-branch',
+      'release/1.2',
+    ])
+
+    expect(result.options.baseBranch).toBe('release/1.2')
+    expect(typeof result.options.baseBranch).toBe('string')
+
+    const actualCommand = await sendCommands.parse([
+      'node',
+      'kimaki',
+      'send',
+      '--base-branch',
+      'release/1.2',
+    ], { run: false })
+    expect(actualCommand.options.baseBranch).toBe('release/1.2')
   })
 
   test('keeps task delete ID as string before validation', async () => {

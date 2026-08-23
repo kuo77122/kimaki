@@ -35,6 +35,7 @@ import {
   execAsync,
   resolveSessionWorkingDirectory,
   isGitRepositoryRoot,
+  resolveRequestedWorktreeBaseRef,
   validateBranchRef,
 } from '../worktrees.js'
 import { upgrade, getCurrentVersion } from '../upgrade.js'
@@ -83,6 +84,10 @@ cli
   .option(
     '--worktree [name]',
     'Create git worktree for session (name optional, derives from thread name)',
+  )
+  .option(
+    '--base-branch <ref>',
+    'Create the worktree from this validated base ref (requires --worktree)',
   )
   .option(
     '--cwd <path>',
@@ -163,6 +168,11 @@ cli
 
         if (threadId && sessionId) {
           cliLogger.error('Use either --thread or --session, not both')
+          process.exit(EXIT_NO_RESTART)
+        }
+
+        if (options.baseBranch && !options.worktree) {
+          cliLogger.error('--base-branch requires --worktree')
           process.exit(EXIT_NO_RESTART)
         }
 
@@ -281,6 +291,9 @@ cli
           }
           if (options.cwd) {
             incompatibleFlags.push('--cwd')
+          }
+          if (options.baseBranch) {
+            incompatibleFlags.push('--base-branch')
           }
           if (name) {
             incompatibleFlags.push('--name')
@@ -631,7 +644,9 @@ cli
         const projectDirectory = channelConfig?.directory
 
         // Features that require a local project directory mapping
-        const needsProjectDirectory = Boolean(parsedSchedule || options.wait || options.cwd)
+        const needsProjectDirectory = Boolean(
+          parsedSchedule || options.wait || options.cwd || options.baseBranch,
+        )
         if (!channelConfig && needsProjectDirectory) {
           throw new Error(
             `Channel #${channelData.name} is not configured with a project directory. ` +
@@ -654,6 +669,17 @@ cli
             process.exit(EXIT_NO_RESTART)
           }
           resolvedCwd = cwdResult.directory
+        }
+
+        const resolvedBaseBranch = options.baseBranch
+          ? await resolveRequestedWorktreeBaseRef({
+              projectDirectory: projectDirectory!,
+              rawBaseBranch: options.baseBranch,
+            })
+          : undefined
+        if (resolvedBaseBranch instanceof Error) {
+          cliLogger.error(`Invalid base branch: \`${options.baseBranch}\``)
+          process.exit(EXIT_NO_RESTART)
         }
 
         const resolvedUser = await resolveDiscordUserOption({
@@ -721,6 +747,7 @@ cli
             name: name || null,
             notifyOnly: Boolean(notifyOnly),
             worktreeName: worktreeName || null,
+            baseBranch: resolvedBaseBranch || null,
             cwd: resolvedCwd || null,
             agent: options.agent || null,
             model: options.model || null,
@@ -760,6 +787,7 @@ cli
           : {
               start: true,
               ...(worktreeName && { worktree: worktreeName }),
+              ...(resolvedBaseBranch && { baseBranch: resolvedBaseBranch }),
               ...(resolvedCwd && { cwd: resolvedCwd }),
               ...(resolvedUser && {
                 userId: resolvedUser.id,

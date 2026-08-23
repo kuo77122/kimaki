@@ -55,6 +55,9 @@ const WORKTREE_SUFFIX = Date.now().toString(36).slice(-6)
 const WORKTREE_NAME = `Feature/custom-${WORKTREE_SUFFIX}`
 const CHANNEL_WORKTREE_NAME = `wt-chan-${WORKTREE_SUFFIX}`
 const AUTO_WORKTREE_SUFFIX = `wt-auto-${WORKTREE_SUFFIX}`
+const BASE_REF_NAME = `base-ref-${WORKTREE_SUFFIX}`
+const BASE_REF_WORKTREE_NAME = `base-ref-worktree-${WORKTREE_SUFFIX}`
+const INVALID_BASE_REF_WORKTREE_NAME = `invalid-base-ref-worktree-${WORKTREE_SUFFIX}`
 
 function normalizeWorktreeLifecycleText(text: string): string {
   return text
@@ -71,8 +74,9 @@ function normalizeWorktreeLifecycleText(text: string): string {
 }
 
 function createRunDirectories() {
-  const root = path.resolve(process.cwd(), 'tmp', 'worktree-lifecycle-e2e')
-  fs.mkdirSync(root, { recursive: true })
+  const rootBase = path.resolve(process.cwd(), 'tmp', 'worktree-lifecycle-e2e')
+  fs.mkdirSync(rootBase, { recursive: true })
+  const root = fs.mkdtempSync(path.join(rootBase, 'run-'))
   const dataDir = fs.mkdtempSync(path.join(root, 'data-'))
   const projectDirectory = path.join(root, 'project')
   const nonGitDirectory = path.join(root, 'non-git-project')
@@ -308,6 +312,8 @@ describe('worktree lifecycle', () => {
       const branchesToClean = [
         WORKTREE_NAME,
         CHANNEL_WORKTREE_NAME,
+        BASE_REF_NAME,
+        BASE_REF_WORKTREE_NAME,
       ]
       await execAsync(
         `git worktree list --porcelain`,
@@ -354,7 +360,7 @@ describe('worktree lifecycle', () => {
           ).catch(() => { return })
         }
       }).catch(() => { return })
-      fs.rmSync(directories.dataDir, {
+      fs.rmSync(directories.root, {
         recursive: true,
         force: true,
         maxRetries: 3,
@@ -875,5 +881,131 @@ describe('worktree lifecycle', () => {
       expect(runtime!.sdkDirectory).not.toBe(directories.projectDirectory)
     },
     35_000,
+  )
+
+  test(
+    'kimaki send uses the requested base ref without changing source refs',
+    async () => {
+      await execAsync(`git branch ${JSON.stringify(BASE_REF_NAME)}`, {
+        cwd: directories.projectDirectory,
+      })
+      const baseSha = (
+        await execAsync(`git rev-parse ${JSON.stringify(BASE_REF_NAME)}`, {
+          cwd: directories.projectDirectory,
+        })
+      ).stdout.trim()
+      fs.writeFileSync(
+        path.join(directories.projectDirectory, 'base-ref-head.txt'),
+        'HEAD only\n',
+      )
+      await execAsync('git add base-ref-head.txt && git commit -m "head only"', {
+        cwd: directories.projectDirectory,
+      })
+      const headSha = (
+        await execAsync('git rev-parse HEAD', {
+          cwd: directories.projectDirectory,
+        })
+      ).stdout.trim()
+
+      const prompt = `Reply with exactly: ${BASE_REF_WORKTREE_NAME}`
+      const embedMarker: ThreadStartMarker = {
+        start: true,
+        worktree: BASE_REF_WORKTREE_NAME,
+        baseBranch: BASE_REF_NAME,
+        username: 'worktree-tester',
+        userId: TEST_USER_ID,
+      }
+      const starterMessage = await discord
+        .channel(TEXT_CHANNEL_ID)
+        .bot()
+        .sendMessage({
+          content: prompt,
+          embeds: [
+            { color: 0x2b2d31, footer: { text: YAML.stringify(embedMarker) } },
+          ],
+        })
+      const threadData = (await botClient.rest.post(
+        Routes.threads(TEXT_CHANNEL_ID, starterMessage.id),
+        {
+          body: {
+            name: BASE_REF_WORKTREE_NAME,
+            auto_archive_duration: 1440,
+          },
+        },
+      )) as { id: string }
+
+      await waitForBotMessageContaining({
+        discord,
+        threadId: threadData.id,
+        userId: TEST_USER_ID,
+        text: 'Branch:',
+        timeout: 25_000,
+      })
+
+      const worktreeInfo = await getThreadWorktreeOrWorkspace(threadData.id)
+      const worktreeDirectory = worktreeInfo?.workspace_directory
+      if (!worktreeDirectory) throw new Error('Worktree directory was not persisted')
+      const createdSha = (
+        await execAsync('git rev-parse HEAD', { cwd: worktreeDirectory })
+      ).stdout.trim()
+
+      expect(createdSha).toBe(baseSha)
+      expect(
+        (
+          await execAsync(`git rev-parse ${JSON.stringify(BASE_REF_NAME)}`, {
+            cwd: directories.projectDirectory,
+          })
+        ).stdout.trim(),
+      ).toBe(baseSha)
+      expect(
+        (await execAsync('git rev-parse HEAD', { cwd: directories.projectDirectory })).stdout.trim(),
+      ).toBe(headSha)
+    },
+    35_000,
+  )
+
+  test(
+    'kimaki send rejects a nonexistent base ref before bot worktree creation',
+    async () => {
+      const embedMarker: ThreadStartMarker = {
+        start: true,
+        worktree: INVALID_BASE_REF_WORKTREE_NAME,
+        baseBranch: 'missing/base-ref',
+        username: 'worktree-tester',
+        userId: TEST_USER_ID,
+      }
+      const starterMessage = await discord
+        .channel(TEXT_CHANNEL_ID)
+        .bot()
+        .sendMessage({
+          content: 'Reject the missing base ref',
+          embeds: [
+            { color: 0x2b2d31, footer: { text: YAML.stringify(embedMarker) } },
+          ],
+        })
+      const threadData = (await botClient.rest.post(
+        Routes.threads(TEXT_CHANNEL_ID, starterMessage.id),
+        {
+          body: {
+            name: INVALID_BASE_REF_WORKTREE_NAME,
+            auto_archive_duration: 1440,
+          },
+        },
+      )) as { id: string }
+
+      await waitForBotMessageContaining({
+        discord,
+        threadId: threadData.id,
+        userId: TEST_USER_ID,
+        text: 'Invalid base branch:',
+        timeout: 10_000,
+      })
+
+      const worktreeInfo = await getThreadWorktreeOrWorkspace(threadData.id)
+      expect(worktreeInfo).toBeUndefined()
+      const text = await discord.thread(threadData.id).text()
+      expect(text).not.toContain('Branch:')
+    },
+    20_000,
   )
 })

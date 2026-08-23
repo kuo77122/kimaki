@@ -134,6 +134,52 @@ describe('scheduled task execution options', () => {
     `)
   })
 
+  test('defaults old channel payloads to no base branch', () => {
+    const payload = parseScheduledTaskPayload(JSON.stringify({
+      kind: 'channel',
+      channelId: 'channel-1',
+      prompt: 'Handle support requests',
+      notifyOnly: false,
+      worktreeName: 'feature',
+    }))
+
+    expect(payload).toMatchInlineSnapshot(`
+      {
+        "agent": null,
+        "allowConcurrency": false,
+        "baseBranch": null,
+        "channelId": "channel-1",
+        "cwd": null,
+        "injectionGuardPatterns": null,
+        "kind": "channel",
+        "model": null,
+        "name": null,
+        "notifyOnly": false,
+        "parentSessionId": null,
+        "permissions": null,
+        "preRunCommand": null,
+        "prompt": "Handle support requests",
+        "userId": null,
+        "username": null,
+        "worktreeName": "feature",
+      }
+    `)
+  })
+
+  test('preserves a channel task base branch', () => {
+    const payload = parseScheduledTaskPayload(JSON.stringify({
+      kind: 'channel',
+      channelId: 'channel-1',
+      prompt: 'Use the release branch',
+      worktreeName: 'feature',
+      baseBranch: 'release/1.2',
+    }))
+
+    if (payload instanceof Error) throw payload
+    if (payload.kind !== 'channel') throw new Error('Expected channel payload')
+    expect(payload.baseBranch).toBe('release/1.2')
+  })
+
   test('adds command stdout to the prompt', () => {
     expect(appendTaskCommandOutput({
       prompt: 'Handle support requests',

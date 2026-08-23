@@ -151,6 +151,7 @@ async function executeChannelScheduledTask({
         ...(task.schedule_kind === 'cron' ? { scheduledTaskId: task.id } : {}),
         ...(runId ? { scheduledTaskRunId: runId } : {}),
         ...(payload.worktreeName ? { worktree: payload.worktreeName } : {}),
+        ...(payload.baseBranch ? { baseBranch: payload.baseBranch } : {}),
         ...(payload.cwd ? { cwd: payload.cwd } : {}),
         ...(payload.agent ? { agent: payload.agent } : {}),
         ...(payload.model ? { model: payload.model } : {}),
