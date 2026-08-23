@@ -13,6 +13,7 @@ import {
   parseGitmodulesFileContent,
   parseGitWorktreeListPorcelain,
   resolveSessionWorkingDirectory,
+  resolveRequestedWorktreeBaseRef,
   validateBranchRef,
 } from './worktrees.js'
 import {
@@ -429,6 +430,45 @@ describe('worktrees', () => {
       expect(valid).toBe('Feature/custom-name')
       expect(shellSafe).toBe('Feature/with`true`')
       expect(invalid).toBeInstanceOf(Error)
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true })
+    }
+  })
+
+  test('resolves a requested base ref without changing source refs', async () => {
+    const sandbox = createTestRoot()
+    const projectDirectory = path.join(sandbox, 'project')
+    const targetDirectory = path.join(sandbox, 'worktree')
+    try {
+      fs.mkdirSync(projectDirectory, { recursive: true })
+      await git({ cwd: projectDirectory, args: ['init', '-b', 'main'] })
+      await git({ cwd: projectDirectory, args: ['config', 'user.email', 'kimaki-tests@example.com'] })
+      await git({ cwd: projectDirectory, args: ['config', 'user.name', 'Kimaki Tests'] })
+      fs.writeFileSync(path.join(projectDirectory, 'README.md'), 'base\n')
+      await git({ cwd: projectDirectory, args: ['add', 'README.md'] })
+      await git({ cwd: projectDirectory, args: ['commit', '-m', 'base'] })
+      await git({ cwd: projectDirectory, args: ['branch', 'release'] })
+      fs.writeFileSync(path.join(projectDirectory, 'README.md'), 'head\n')
+      await git({ cwd: projectDirectory, args: ['commit', '-am', 'head'] })
+
+      const mainSha = await git({ cwd: projectDirectory, args: ['rev-parse', 'main'] })
+      const releaseSha = await git({ cwd: projectDirectory, args: ['rev-parse', 'release'] })
+      const resolvedBase = await resolveRequestedWorktreeBaseRef({
+        projectDirectory,
+        rawBaseBranch: 'release',
+      })
+      const result = await createWorktreeCore({
+        projectDirectory,
+        targetDirectory,
+        branchName: 'feature',
+        baseBranch: resolvedBase instanceof Error ? undefined : resolvedBase,
+      })
+
+      expect(resolvedBase).toBe('release')
+      expect(result).not.toBeInstanceOf(Error)
+      expect(await git({ cwd: targetDirectory, args: ['rev-parse', 'HEAD'] })).toBe(releaseSha)
+      expect(await git({ cwd: projectDirectory, args: ['rev-parse', 'main'] })).toBe(mainSha)
+      expect(await git({ cwd: projectDirectory, args: ['rev-parse', 'release'] })).toBe(releaseSha)
     } finally {
       fs.rmSync(sandbox, { recursive: true, force: true })
     }

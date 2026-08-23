@@ -284,6 +284,8 @@ export type ThreadStartMarker = {
   cliThreadPrompt?: boolean
   /** Worktree name to create */
   worktree?: string
+  /** Validated base ref to use when creating the worktree */
+  baseBranch?: string
   /** Existing project subfolder or worktree directory to use as working directory */
   cwd?: string
   /** Discord username who initiated the thread */

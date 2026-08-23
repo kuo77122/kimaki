@@ -26,6 +26,7 @@ export type ScheduledTaskPayload = {
       name: string | null
       notifyOnly: boolean
       worktreeName: string | null
+      baseBranch: string | null
       cwd: string | null
       agent: string | null
       model: string | null
@@ -295,6 +296,7 @@ export function parseScheduledTaskPayload(
     const name = typeof nameValue === 'string' ? nameValue : null
     const notifyOnly = parsed.notifyOnly === true
     const worktreeName = asString(parsed.worktreeName)
+    const baseBranch = asString(parsed.baseBranch)
     const cwd = asString(parsed.cwd)
     const agent = asString(parsed.agent)
     const model = asString(parsed.model)
@@ -313,6 +315,7 @@ export function parseScheduledTaskPayload(
       name,
       notifyOnly,
       worktreeName,
+      baseBranch,
       cwd,
       agent,
       model,

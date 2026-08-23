@@ -35,6 +35,7 @@ import {
   resolveSessionWorkingDirectory,
   git,
   isGitRepositoryRoot,
+  resolveRequestedWorktreeBaseRef,
   validateBranchRef,
 } from './worktrees.js'
 import { WORKTREE_PREFIX } from './commands/merge-worktree.js'
@@ -1328,6 +1329,23 @@ export async function startDiscordBot({
         return
       }
 
+      const resolvedBaseBranch = marker.baseBranch
+        ? await resolveRequestedWorktreeBaseRef({
+            projectDirectory,
+            rawBaseBranch: marker.baseBranch,
+          })
+        : undefined
+      if (resolvedBaseBranch instanceof Error) {
+        discordLogger.error(
+          `[BOT_SESSION] Invalid base branch: ${marker.baseBranch}`,
+        )
+        await thread.send({
+          content: `✗ Invalid base branch: \`${marker.baseBranch}\``,
+          flags: NOTIFY_MESSAGE_FLAGS,
+        })
+        return
+      }
+
       let worktreePromise: Promise<string | Error> | undefined
       if (validatedWorktreeName && (await isGitRepositoryRoot(projectDirectory))) {
         discordLogger.log(`[BOT_SESSION] Creating worktree: ${validatedWorktreeName}`)
@@ -1344,6 +1362,7 @@ export async function startDiscordBot({
           starterMessage: worktreeStatusMessage,
           worktreeName: validatedWorktreeName,
           projectDirectory,
+          baseBranch: resolvedBaseBranch,
           rest: discordClient.rest,
         })
       } else if (marker.worktree) {

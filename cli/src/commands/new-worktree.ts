@@ -33,7 +33,7 @@ import { notifyError } from '../sentry.js'
 import {
   execAsync,
   listBranchesByLastCommit,
-  resolveBestBaseRef,
+  resolveRequestedWorktreeBaseRef,
   validateBranchRef,
 } from '../worktrees.js'
 import { getOrCreateRuntime } from '../session-handler/thread-session-runtime.js'
@@ -47,38 +47,6 @@ import * as errore from 'errore'
 import { copyCurrentSessionModel } from './model.js'
 
 const logger = createLogger(LogPrefix.WORKTREE)
-const DEFAULT_WORKTREE_BASE_REF = 'HEAD'
-
-async function resolveRequestedWorktreeBaseRef({
-  projectDirectory,
-  rawBaseBranch,
-}: {
-  projectDirectory: string
-  rawBaseBranch?: string
-}): Promise<string | Error> {
-  if (!rawBaseBranch) {
-    // Default to the current local HEAD so worktrees can branch from
-    // unpublished commits in the main checkout.
-    return DEFAULT_WORKTREE_BASE_REF
-  }
-
-  const validated = await validateBranchRef({
-    directory: projectDirectory,
-    ref: rawBaseBranch,
-  })
-  if (validated instanceof Error) return validated
-
-  // Fetch and prefer the remote tracking ref if it's strictly ahead of local.
-  // Handles the common case where user says "main" but upstream/main has new commits.
-  const bestRef = await resolveBestBaseRef({
-    directory: projectDirectory,
-    branch: validated,
-  })
-  if (bestRef !== validated) {
-    logger.log(`Base branch resolved: ${validated} → ${bestRef} (remote is ahead)`)
-  }
-  return bestRef
-}
 
 /** Status message shown while a worktree is being created. */
 export function worktreeCreatingMessage(worktreeName: string): string {
